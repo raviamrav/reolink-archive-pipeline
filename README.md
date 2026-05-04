@@ -1,21 +1,86 @@
 # Reolink Archive Pipeline
 
-Automated CCTV cloud archival pipeline that moves yesterday's Reolink 
-camera recordings from local storage to MEGA cloud daily and sends a 
-real-time Telegram notification.
+> Automated CCTV cloud archival pipeline that moves yesterday's Reolink 
+> camera recordings from local PC to MEGA cloud daily and sends a 
+> real-time Telegram notification.
+
+---
+
+## The Problem
+
+Reolink IP cameras support local SD card recording, but SD cards have 
+limitations:
+- SD card storage fills up quickly and overwrites old footage
+- SD cards can corrupt or fail — recordings lost permanently
+- Viewing and managing footage directly from SD card is unreliable
+
+**FTP was configured as a backup solution** — camera uploads recordings 
+to local PC automatically. However this introduced a new problem:
+
+- PC local storage fills up fast as camera dumps footage continuously
+- Manual cleanup is time consuming and easy to forget
+- Risk of losing new recordings when disk is full
+
+---
+
+## The Solution
+
+An automated pipeline that:
+- Receives Reolink recordings via FTP to local PC
+- Syncs recordings to MEGA cloud automatically as backup
+- Moves previous day's footage to a cloud Archive folder daily
+- Frees up local PC storage automatically
+- Sends a Telegram notification confirming the archive completed
+- Runs silently every day without any manual intervention
+
+```
+SD Card issue
+      ↓ (unreliable, corrupts)
+FTP backup to local PC
+      ↓ (fills up local storage)
+Auto sync to MEGA cloud
+      ↓ (archive old footage daily)
+Local storage freed automatically ✅
+Cloud archive preserved permanently ✅
+```
 
 ---
 
 ## Architecture
 
 ```
-Reolink Camera → FTP → Local PC → MEGA Sync → MEGA Cloud (Reolink_cams)
-                                                        ↓
-                                                mega_archive.bat
-                                                        ↓
-                                          MEGA Cloud (Camera_Archive)
-                                                        ↓
-                                             Telegram Notification
+Reolink Camera
+      ↓ FTP
+Local PC (MEGA sync folder)
+      ↓ MEGA Desktop App (auto sync)
+MEGA Cloud → /MEGA/Reolink_cams
+      ↓ mega_archive.bat (runs daily)
+MEGA Cloud → /MEGA/Camera_Archive
+      ↓ Telegram Bot API
+Your Phone (notification ✅)
+```
+
+### Daily Trigger Flow
+
+```
+PC Boot
+    ↓
+Task Scheduler → starts n8n
+Task Scheduler → starts server.js
+    ↓
+10:00AM → n8n Schedule Trigger fires
+    ↓
+n8n HTTP Request → http://localhost:3000/run-archive
+    ↓
+server.js → runs mega_archive.bat
+    ↓
+MEGAclient.exe → moves /Reolink_cams/YYYY/MM/DD → /Camera_Archive/
+    ↓
+n8n Telegram node → sends report to phone
+    ↓
+10:15AM → Windows Task Scheduler backup bat runs (failsafe)
+    ↓
+"Already archived" → exits cleanly
 ```
 
 ---
@@ -25,110 +90,225 @@ Reolink Camera → FTP → Local PC → MEGA Sync → MEGA Cloud (Reolink_cams)
 | Technology | Purpose |
 |---|---|
 | Reolink FTP | Camera recording upload to local PC |
-| MEGA Desktop App | Syncs local folder to MEGA cloud |
-| MEGAcmd / MEGAclient | Cloud storage CLI for move operations |
-| Windows Batch Script | Archive logic and date calculation |
+| MEGA Desktop App | Syncs local folder to MEGA cloud automatically |
+| MEGAcmd / MEGAclient.exe | Cloud storage CLI for move operations |
+| Windows Batch Script | Archive logic and dynamic date calculation |
 | Node.js | Local REST API bridge for n8n |
-| n8n | Workflow orchestration and scheduling |
-| Telegram Bot API | Real time notifications |
-| Windows Task Scheduler | Backup daily trigger and auto start |
+| n8n | Visual workflow orchestration and scheduling |
+| Telegram Bot API | Real time notifications to phone |
+| Windows Task Scheduler | Auto start n8n and server.js on boot + failsafe |
 
 ---
 
 ## Prerequisites
 
-| Step | Tool | Download |
+Install all tools before setup:
+
+| # | Tool | Download |
 |---|---|---|
 | 1 | MEGA Desktop App | https://mega.io/desktop |
 | 2 | MEGAcmd | https://mega.io/cmd |
-| 3 | Node.js | https://nodejs.org |
+| 3 | Node.js (v20+) | https://nodejs.org |
 | 4 | n8n | `npm install -g n8n` |
-| 5 | Telegram Bot | via @BotFather in Telegram |
+| 5 | Telegram | via @BotFather in Telegram app |
 | 6 | Git | https://git-scm.com |
 
 ---
 
-## Installation
+## Installation Guide
 
-### 1. MEGA Desktop App + MEGAcmd
+### Step 1 — MEGA Desktop App
 
-- Install MEGA Desktop App and login with your MEGA account
-- Set sync folder to your local MEGA folder
-- Install MEGAcmd separately from https://mega.io/cmd
-- Verify MEGAclient is available:
+1. Download and install from https://mega.io/desktop
+2. Login with your MEGA account
+3. Set your sync folder to a local path e.g:
+```
+C:\Users\<yourname>\Documents\MEGA
+```
 
+---
+
+### Step 2 — MEGAcmd
+
+MEGAcmd gives you command line control over your MEGA cloud storage.
+It works as two parts:
+
+```
+MEGAcmd server  = runs in background, manages MEGA connection
+MEGAclient.exe  = sends commands to the server from scripts
+```
+
+**Install:**
+- Download from https://mega.io/cmd
+- Install — MEGAclient.exe will be available at:
+```
+C:\Users\<yourname>\AppData\Local\MEGAcmd\MEGAclient.exe
+```
+
+**Verify installation:**
 ```powershell
 C:\Users\<yourname>\AppData\Local\MEGAcmd\MEGAclient.exe version
 ```
 
-- Register your sync folder:
+**Login to MEGA via CMD:**
+```powershell
+MEGAclient.exe login your@email.com
+```
 
+**Register your sync folder:**
 ```powershell
 MEGAclient.exe sync "C:\Users\<yourname>\Documents\MEGA\Reolink_cams" "/MEGA/Reolink_cams"
 ```
 
-- Verify sync is active:
-
+**Verify sync is active:**
 ```powershell
 MEGAclient.exe sync
 ```
+You should see status: `ACTIVE`
 
-> **Note:** MEGAcmd runs as a background server. MEGAclient.exe is the 
-> command line tool that sends instructions to it.
+**Verify cloud folders exist:**
+```powershell
+MEGAclient.exe ls /MEGA/
+```
 
 ---
 
-### 2. Node.js
+### Step 3 — Node.js
 
+1. Download LTS version from https://nodejs.org
+2. Install with default settings
+3. Verify:
 ```powershell
-# Verify after installing from nodejs.org
 node --version
 npm --version
 ```
 
 ---
 
-### 3. n8n
+### Step 4 — n8n
 
+n8n is a visual workflow automation tool. It orchestrates the daily 
+archive trigger and Telegram notification.
+
+**Install:**
 ```powershell
-# Install globally
 npm install -g n8n
+```
 
-# Start n8n
+**Verify:**
+```powershell
+n8n --version
+```
+
+**Start n8n:**
+```powershell
 n8n start
+```
 
-# Open in browser
+**Open in browser:**
+```
 http://localhost:5678
 ```
 
-- Register and activate your free license
-- Import `n8n_workflow.json`:
-  - Click **+** New workflow
-  - Click **⋮** menu top right
-  - Click **Import from file**
-  - Select `n8n_workflow.json`
+- Register with email and password (free, stays on your PC)
+- Activate your free license key when prompted
+
+**Import the workflow:**
+1. Click **+** New workflow
+2. Click **⋮** menu (top right)
+3. Click **Import from file**
+4. Select `n8n_workflow.json` from this repo
+5. Click **Save**
+6. Click **Activate** toggle (top right) — turns workflow ON
+
+> **Important:** The workflow must be **Active** to trigger automatically.
+> Inactive workflows do not fire even if n8n is running.
 
 ---
 
-### 4. Telegram Bot
+### Step 5 — Telegram Bot
 
+A Telegram bot sends you a notification every time the archive runs.
+
+**Create your bot:**
 1. Open Telegram → search `@BotFather`
-2. Send `/newbot` → follow prompts → save your **Bot Token**
-3. Search your bot → click **Start** → send any message
-4. Get your Chat ID:
+2. Send `/newbot`
+3. Choose a display name e.g. `Home Automation`
+4. Choose a username e.g. `home_auto_ravi_bot` (must end in `bot`)
+5. BotFather gives you a **Bot Token** — save it safely:
+```
+1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+```
 
+> ⚠️ Never share your Bot Token publicly — treat it like a password.
+
+**Get your Chat ID:**
+1. Search your bot in Telegram → click **Start** → send `hello`
+2. Open this URL in your browser (replace with your token):
 ```
 https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
 ```
+3. Find this in the response:
+```json
+"chat": { "id": 123456789 }
+```
+4. Save that number — it is your **Chat ID**
 
-5. Find `"chat":{"id": XXXXXXXXXX}` → save that number
-6. In n8n Telegram node → Credential → paste Bot Token and Chat ID
+**Configure in n8n:**
+1. Open the workflow in n8n
+2. Click the **Telegram node**
+3. Credential → **Create new**
+4. Paste your **Bot Token** → Save
+5. Set **Chat ID** to your number
+6. Save the workflow
+
+**Test the bot:**
+Click **Test step** on the Telegram node — you should receive a message 
+on your phone immediately.
 
 ---
 
-### 5. Register All Scheduled Tasks
+### Step 6 — Configure mega_archive.bat
 
-Right click `startup.bat` → **Run as Administrator**
+Open `mega_archive.bat` and update the paths to match your PC:
+
+```bat
+SET "MEGACMD_DIR=C:\Users\<yourname>\AppData\Local\MEGAcmd"
+SET "INCOMING=/MEGA/Reolink_cams"
+SET "ARCHIVE=/MEGA/Camera_Archive"
+```
+
+Replace `<yourname>` with your Windows username.
+
+---
+
+### Step 7 — Configure server.js
+
+Open `server.js` and verify the bat file path matches your PC:
+
+```javascript
+exec('cmd /c "C:\\Users\\<yourname>\\Documents\\mega_archive.bat"'
+```
+
+Replace `<yourname>` with your Windows username.
+
+---
+
+### Step 8 — Run startup.bat
+
+This registers all scheduled tasks automatically.
+
+1. Right click `startup.bat`
+2. Select **Run as Administrator**
+3. Click **Yes** on UAC popup
+
+You should see:
+```
+[1/3] Registering n8n auto start... Done.
+[2/3] Registering server.js auto start... Done.
+[3/3] Registering backup archive task... Done.
+All tasks registered successfully!
+```
 
 This registers:
 
@@ -136,89 +316,196 @@ This registers:
 |---|---|---|
 | n8n Auto Start | PC Boot | Starts n8n automatically |
 | n8n Runner Server | PC Boot | Starts server.js automatically |
-| MEGA Reolink Archive | Daily 10:00AM | Primary archive trigger |
 | MEGA Reolink Archive Backup | Daily 10:15AM | Failsafe backup trigger |
+
+> **Note:** The primary 10:00AM trigger is handled by n8n's internal 
+> Schedule Trigger node — not Windows Task Scheduler.
 
 ---
 
-## How It Works
+### Step 9 — Test the full pipeline
 
-### 1. Camera Recording
-Reolink camera uploads recordings via FTP to local MEGA sync folder 
-in `YYYY/MM/DD` folder structure.
+**Manual test:**
+1. Make sure n8n is running (`n8n start`)
+2. Make sure server.js is running (`node server.js`)
+3. Open browser:
+```
+http://localhost:3000/run-archive
+```
+4. You should see:
+```json
+{ "success": true, "message": "Archive completed" }
+```
+5. Check your Telegram — notification should arrive
 
-### 2. Cloud Sync
-MEGA Desktop App watches the local folder and automatically syncs 
-new files to MEGA cloud under `/MEGA/Reolink_cams`.
+**Test n8n workflow manually:**
+1. Open http://localhost:5678
+2. Open your workflow
+3. Click **Test workflow**
+4. All 3 nodes should turn green ✅
+5. Telegram notification arrives on phone ✅
 
-### 3. Daily Archive Script
-`mega_archive.bat` runs daily at 10AM and:
-- Calculates yesterday's date dynamically
-- Checks if yesterday's folder exists in MEGA cloud
-- Moves it from `Reolink_cams` to `Camera_Archive` via MEGAclient.exe
-- If already archived → exits cleanly with no error
-- Frees up local PC space automatically as MEGA syncs the change
+---
 
-### 4. Local REST API
-`server.js` runs a Node.js HTTP server on port 3000.
-n8n cannot execute local commands directly due to sandbox restrictions,
-so this server acts as a bridge.
+## How It Works — Code Explained
+
+### mega_archive.bat
+
+```bat
+:: Calculate yesterday's date dynamically
+FOR /F "tokens=1-3 delims=/" %%A IN (
+  'powershell -Command "Get-Date (Get-Date).AddDays(-1) -Format MM/dd/yyyy"'
+) DO (
+    SET "MONTH=%%A"
+    SET "DAY=%%B"
+    SET "YEAR=%%C"
+)
+```
+👆 Uses PowerShell inside bat to calculate yesterday's date.
+Result: `MONTH=05`, `DAY=03`, `YEAR=2026`
+
+```bat
+:: Check folder exists before moving
+MEGAclient.exe ls "%YESTERDAY_PATH%" >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo Already archived or no recordings.
+    goto :done
+)
+```
+👆 Checks if folder exists first. If already moved → exits cleanly.
+This is called **idempotent** behaviour — safe to run multiple times.
+
+```bat
+:: Move to archive
+MEGAclient.exe mv "%YESTERDAY_PATH%" "%ARCHIVE_PATH%/"
+```
+👆 Moves folder inside MEGA cloud — no re-uploading, instant move.
+
+---
+
+### server.js
+
+```javascript
+const http = require('http');
+const { exec } = require('child_process');
+```
+👆 `http` creates the web server. `exec` runs system commands.
+
+```javascript
+if (req.url === '/run-archive' && req.method === 'GET') {
+```
+👆 Only responds to our specific endpoint — basic security check.
+
+```javascript
+exec('cmd /c "C:\\Users\\ravia\\Documents\\mega_archive.bat"',
+  (error, stdout, stderr) => {
+```
+👆 Runs the bat file. Callback fires when bat finishes.
+
+```javascript
+res.end(JSON.stringify({ success: true, output: stdout }));
+```
+👆 Returns result as JSON — n8n reads this to know if it succeeded.
+
+> **Why do we need server.js?**
+> n8n's Code node sandboxes JavaScript for security and blocks 
+> `child_process`. server.js runs outside that sandbox on your PC 
+> and acts as a bridge between n8n and your system.
+
+---
+
+### n8n Workflow (3 nodes)
 
 ```
-GET http://localhost:3000/run-archive
-→ runs mega_archive.bat
-→ returns JSON result to n8n
+[Schedule Trigger: Daily 10AM]
+            ↓
+[HTTP Request: GET localhost:3000/run-archive]
+            ↓
+[Telegram: Send result to phone]
 ```
 
-### 5. n8n Workflow
-Three node workflow:
+> **How n8n workflow runs automatically:**
+> When n8n starts, it loads all Active workflows from its internal 
+> database. The Schedule Trigger node watches the clock and fires 
+> the workflow at 10AM daily — no manual intervention needed.
+> `n8n_workflow.json` in this repo is a backup copy for version 
+> control and restore purposes.
+
+---
+
+## Failsafe Architecture
 
 ```
-Schedule Trigger (10AM)
-        ↓
-HTTP Request → http://localhost:3000/run-archive
-        ↓
-Telegram → sends result to phone
+Normal day:
+10:00AM → n8n fires → archive done → Telegram sent ✅
+10:15AM → backup bat runs → already archived → exits cleanly ✅
+
+If n8n crashes:
+10:00AM → n8n not running → nothing happens ❌
+10:15AM → backup bat runs directly → archive done ✅
+         (no Telegram but storage protected)
 ```
 
-### 6. Telegram Notification
-Sends daily archive report directly to your phone via Telegram Bot API.
+> If you stop receiving Telegram messages, check if n8n is running.
+> Your recordings are still being archived by the failsafe.
+
+---
+
+## Project Structure
+
+```
+reolink-archive-pipeline/
+├── README.md               ← this file
+├── mega_archive.bat        ← daily archive logic
+├── server.js               ← local REST API bridge
+├── startup.bat             ← one click task registration
+└── n8n_workflow.json       ← n8n workflow backup/restore
+```
 
 ---
 
 ## Key Concepts Demonstrated
 
-- **REST API** design and consumption
-- **CLI automation** using MEGAcmd
-- **Error handling** and idempotent script execution
-- **Workflow orchestration** with n8n
-- **Failsafe architecture** — primary + backup triggers
-- **Infrastructure as Code** — startup.bat registers all tasks
-- **Real time notifications** via Telegram Bot API
+| Concept | Where used |
+|---|---|
+| FTP protocol | Reolink camera upload |
+| Cloud storage CLI | MEGAclient.exe commands |
+| REST API design | server.js endpoints |
+| JSON data format | API responses between nodes |
+| Workflow orchestration | n8n 3 node pipeline |
+| Error handling | Idempotent bat script |
+| Failsafe architecture | Primary + backup triggers |
+| Infrastructure as Code | startup.bat registers all tasks |
+| Bot API integration | Telegram notifications |
+| Version control | Git + GitHub |
 
 ---
 
 ## Lessons Learned
 
-- n8n Code node sandboxes `child_process` for security
-- MEGA CMD `mv` returns success even on empty folders
-- Batch scripts must be **non-interactive** for automation
-- Always test each component independently before connecting
-- `git push -f` overwrites remote — use carefully in team projects
+- n8n Code node sandboxes `child_process` — use a local HTTP server as bridge
+- MEGA CMD `mv` returns success even on empty paths — always check with `ls` first
+- Batch scripts must be **non-interactive** for automation — remove all `pause` commands
+- Always test each component independently before connecting end to end
+- `git push -f` overwrites remote history — use carefully in team projects
+- Windows Task Scheduler requires **Run as Administrator** to register system tasks
 
 ---
 
 ## Future Improvements
 
 - [ ] Dockerise server.js for reliable auto start on boot
-- [ ] Log each run to Google Sheets via n8n
-- [ ] Alert if no new recordings found (camera offline detection)
+- [ ] Log each archive run to Google Sheets via n8n
+- [ ] Camera offline detection — alert if no new recordings found
 - [ ] Weekly summary report on Telegram
 - [ ] Migrate batch script to Python for cross platform support
+- [ ] Add n8n error workflow — notify if archive fails
 
 ---
 
 ## Author
+
 **Ravivarma Singaravelu**  
 Software Developer | Automation Enthusiast  
-Dresden, Germany
+Dresden, Germany  
+github.com/raviamrav
