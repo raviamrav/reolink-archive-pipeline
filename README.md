@@ -222,4 +222,3 @@ Sends daily archive report directly to your phone via Telegram Bot API.
 **Ravivarma Singaravelu**  
 Software Developer | Automation Enthusiast  
 Dresden, Germany
-````
