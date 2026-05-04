@@ -1,0 +1,97 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7aab3c59-1fbf-4d2a-b68e-fefac0244f53",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "chatId": "6762151383",
+        "text": "=Reolink Archive Report Status: Done!",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "5f6d7e65-0c20-4d74-8c97-a76af87509ee",
+      "name": "Send a text message",
+      "webhookId": "acd95208-4dcd-4f0e-ac0b-d9aac6de2f57",
+      "credentials": {
+        "telegramApi": {
+          "id": "Mre23Ji6JH05GmJe",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/run-archive",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "35e983fa-e8ae-42e2-8b33-87db2f2439a7",
+      "name": "HTTP Request"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "d8d8ae4b-cdaa-449e-a0cc-ff5aa633b031",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "cd9dd68e60d2d1099bd510689226cc20386d43dc13af3a037baa7735dc23063c"
+  },
+  "id": "VcOvWmmLo5E7zPN0",
+  "tags": []
+}
