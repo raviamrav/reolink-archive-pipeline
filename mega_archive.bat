@@ -1,7 +1,57 @@
 @echo off
+:: ============================================
+:: CONFIGURATION
+:: ============================================
 SET "MEGACMD_DIR=C:\Users\ravia\AppData\Local\MEGAcmd"
 SET "INCOMING=/MEGA/Reolink_cams"
 SET "ARCHIVE=/MEGA/Camera_Archive"
+SET "PROJECT_DIR=C:\dev\portfolio\reolink-archive-pipeline"
+
+:: ============================================
+:: STEP 1 - Ensure MEGA is logged in
+:: ============================================
+echo [1/4] Checking MEGA login...
+"%MEGACMD_DIR%\MEGAclient.exe" whoami >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo MEGA not logged in. Logging in...
+    "%MEGACMD_DIR%\MEGAclient.exe" login raviamrav@yahoo.com YourPasswordHere
+) ELSE (
+    echo MEGA already logged in.
+)
+
+:: ============================================
+:: STEP 2 - Ensure n8n is running
+:: ============================================
+echo [2/4] Checking n8n...
+netstat -ano | findstr ":5678" >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo n8n not running. Starting...
+    start /min "n8n Service" cmd /c "n8n start"
+    timeout /t 30 /nobreak >nul
+    echo n8n started.
+) ELSE (
+    echo n8n already running.
+)
+
+:: ============================================
+:: STEP 3 - Ensure server.js is running
+:: ============================================
+echo [3/4] Checking server.js...
+netstat -ano | findstr ":3000" >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo server.js not running. Starting...
+    start /min "n8n Runner" cmd /c "node %PROJECT_DIR%\server.js"
+    timeout /t 5 /nobreak >nul
+    echo server.js started.
+) ELSE (
+    echo server.js already running.
+)
+
+:: ============================================
+:: STEP 4 - Run archive
+:: ============================================
+echo [4/4] Running archive...
+
 
 :: --- Get yesterday's date parts ---
 FOR /F "tokens=1-3 delims=/" %%A IN ('powershell -NoProfile -Command "Get-Date (Get-Date).AddDays(-1) -Format MM/dd/yyyy"') DO (
