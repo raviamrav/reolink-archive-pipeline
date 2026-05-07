@@ -14,7 +14,7 @@ echo [1/4] Checking MEGA login...
 "%MEGACMD_DIR%\MEGAclient.exe" whoami >nul 2>&1
 IF %ERRORLEVEL% NEQ 0 (
     echo MEGA not logged in. Logging in...
-    "%MEGACMD_DIR%\MEGAclient.exe" login raviamrav@yahoo.com YourPasswordHere
+    "%MEGACMD_DIR%\MEGAclient.exe" login raviamrav@yahoo.com Mega1.nz
 ) ELSE (
     echo MEGA already logged in.
 )

@@ -287,10 +287,8 @@ Replace `<yourname>` with your Windows username.
 Open `server.js` and verify the bat file path matches your PC:
 
 ```javascript
-exec('cmd /c "C:\\Users\\<yourname>\\Documents\\mega_archive.bat"'
+exec('cmd /c "C:\\dev\\portfolio\\reolink-archive-pipeline\\mega_archive.bat"')
 ```
-
-Replace `<yourname>` with your Windows username.
 
 ---
 
@@ -397,7 +395,7 @@ if (req.url === '/run-archive' && req.method === 'GET') {
 👆 Only responds to our specific endpoint — basic security check.
 
 ```javascript
-exec('cmd /c "C:\\Users\\ravia\\Documents\\mega_archive.bat"',
+exec('cmd /c "C:\\dev\\portfolio\\reolink-archive-pipeline\\mega_archive.bat"',
   (error, stdout, stderr) => {
 ```
 👆 Runs the bat file. Callback fires when bat finishes.

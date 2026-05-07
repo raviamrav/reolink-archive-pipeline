@@ -12,7 +12,7 @@ const server = http.createServer((req, res) => {
     console.log('Received request - running mega_archive.bat...');
     
     // Run the bat file
-    exec('cmd /c "C:\\Users\\ravia\\Documents\\mega_archive.bat"', 
+    exec('cmd /c "C:\\dev\\portfolio\\reolink-archive-pipeline\\mega_archive.bat"', 
       (error, stdout, stderr) => {
         
         if (error) {
