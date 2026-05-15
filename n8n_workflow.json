@@ -9,7 +9,8 @@
               "triggerAtHour": 10
             }
           ]
-        }
+        },
+        "timezone": "Europe/Berlin"
       },
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
