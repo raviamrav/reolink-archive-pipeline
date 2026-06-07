@@ -344,6 +344,9 @@ http://localhost:3000/run-archive
 5. Telegram notification arrives on phone ✅
 
 ---
+## Output - Screenshot
+<img width="986" height="313" alt="image" src="https://github.com/user-attachments/assets/8ca2810c-4f9d-46de-bcd8-5989442381ef" />
+
 
 ## How It Works — Code Explained
 
