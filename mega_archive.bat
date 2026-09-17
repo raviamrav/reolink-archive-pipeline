@@ -2,27 +2,62 @@
 :: ============================================
 :: CONFIGURATION
 :: ============================================
-SET "MEGACMD_DIR=C:\Users\ravia\AppData\Local\MEGAcmd"
+IF DEFINED LOCALAPPDATA (
+    SET "MEGACMD_DIR=%LOCALAPPDATA%\MEGAcmd"
+) ELSE (
+    SET "MEGACMD_DIR=%USERPROFILE%\AppData\Local\MEGAcmd"
+)
+
+IF NOT EXIST "%MEGACMD_DIR%\MEGAclient.exe" (
+    SET "MEGACMD_DIR=%USERPROFILE%\AppData\Local\MEGAcmd"
+)
+
+SET "MEGA_CMD=%MEGACMD_DIR%\MEGAclient.exe"
+SET "LOCAL_INCOMING=C:\Reolink_FTP"
 SET "INCOMING=/MEGA/Reolink_cams"
 SET "ARCHIVE=/MEGA/Camera_Archive"
 SET "PROJECT_DIR=C:\dev\portfolio\reolink-archive-pipeline"
 
+:: Optional: set these environment variables before running the script
+::   set MEGA_EMAIL=your@email.com
+::   set MEGA_PASSWORD=your_password
+
 :: ============================================
-:: STEP 1 - Ensure MEGA is logged in
+:: STEP 1 - Ensure MEGA is installed and logged in
 :: ============================================
 echo [1/4] Checking MEGA login...
-"%MEGACMD_DIR%\MEGAclient.exe" whoami >nul 2>&1
+IF NOT EXIST "%MEGA_CMD%" (
+    echo ERROR: MEGAcmd not found at "%MEGA_CMD%".
+    echo Install MEGAcmd from: https://mega.io/cmd
+    exit /b 1
+)
+
+"%MEGA_CMD%" whoami >nul 2>&1
 IF %ERRORLEVEL% NEQ 0 (
-    echo MEGA not logged in. Logging in...
-    "%MEGACMD_DIR%\MEGAclient.exe" login raviamrav@yahoo.com Mega1.nz
+    echo MEGA not logged in. Attempting login...
+    IF NOT "%MEGA_EMAIL%"=="" IF NOT "%MEGA_PASSWORD%"=="" (
+        "%MEGA_CMD%" login "%MEGA_EMAIL%" "%MEGA_PASSWORD%"
+    ) ELSE (
+        echo Please log in once with:
+        echo   "%MEGA_CMD%" login your@email.com
+        echo or set MEGA_EMAIL and MEGA_PASSWORD in your environment before running this script.
+        exit /b 1
+    )
 ) ELSE (
     echo MEGA already logged in.
 )
 
 :: ============================================
-:: STEP 2 - Ensure n8n is running
+:: STEP 2 - Ensure n8n is installed and running
 :: ============================================
 echo [2/4] Checking n8n...
+where n8n >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo ERROR: n8n is not installed.
+    echo Install it with: npm install -g n8n
+    exit /b 1
+)
+
 netstat -ano | findstr ":5678" >nul 2>&1
 IF %ERRORLEVEL% NEQ 0 (
     echo n8n not running. Starting...
@@ -34,9 +69,21 @@ IF %ERRORLEVEL% NEQ 0 (
 )
 
 :: ============================================
-:: STEP 3 - Ensure server.js is running
+:: STEP 3 - Ensure Node.js and server.js are available
 :: ============================================
 echo [3/4] Checking server.js...
+where node >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo ERROR: Node.js is not installed or not on PATH.
+    echo Install Node.js LTS from https://nodejs.org
+    exit /b 1
+)
+
+IF NOT EXIST "%PROJECT_DIR%\server.js" (
+    echo ERROR: server.js not found at "%PROJECT_DIR%\server.js".
+    exit /b 1
+)
+
 netstat -ano | findstr ":3000" >nul 2>&1
 IF %ERRORLEVEL% NEQ 0 (
     echo server.js not running. Starting...
@@ -52,53 +99,52 @@ IF %ERRORLEVEL% NEQ 0 (
 :: ============================================
 echo [4/4] Running archive...
 
-
-:: --- Get yesterday's date parts ---
-FOR /F "tokens=1-3 delims=/" %%A IN ('powershell -NoProfile -Command "Get-Date (Get-Date).AddDays(-1) -Format MM/dd/yyyy"') DO (
-    SET "MONTH=%%A"
-    SET "DAY=%%B"
-    SET "YEAR=%%C"
-)
-
-SET "YESTERDAY_PATH=%INCOMING%/%YEAR%/%MONTH%/%DAY%"
-SET "ARCHIVE_PATH=%ARCHIVE%/%YEAR%/%MONTH%"
-
-echo Today is: %DATE%
-echo Moving yesterday's folder: %YESTERDAY_PATH%
-echo Destination: %ARCHIVE_PATH%/%DAY%
-echo.
-
 :: Check login
-"%MEGACMD_DIR%\MEGAclient.exe" whoami >nul 2>&1
+"%MEGA_CMD%" whoami >nul 2>&1
 IF %ERRORLEVEL% NEQ 0 (
     echo ERROR: Not logged into MEGA.
-    pause
+    echo Run: "%MEGA_CMD%" login your@email.com
     exit /b 1
 )
 
-:: Create destination path in archive if it doesn't exist
-"%MEGACMD_DIR%\MEGAclient.exe" mkdir -p "%ARCHIVE_PATH%" >nul 2>&1
-
-:: Check if folder exists before moving
-"%MEGACMD_DIR%\MEGAclient.exe" ls "%YESTERDAY_PATH%" >nul 2>&1
-IF %ERRORLEVEL% NEQ 0 (
-    echo Folder %YESTERDAY_PATH% not found - already archived or no recordings.
-    goto :done
+:: Discover all local date folders. Today is deliberately excluded.
+IF NOT EXIST "%LOCAL_INCOMING%" (
+    echo ERROR: Local recording folder not found: "%LOCAL_INCOMING%"
+    echo Update LOCAL_INCOMING near the top of this script.
+    exit /b 1
 )
 
-:: Move yesterday's day folder to archive
-"%MEGACMD_DIR%\MEGAclient.exe" mv "%YESTERDAY_PATH%" "%ARCHIVE_PATH%/"
+echo Today is: %DATE%
+echo Scanning completed recording folders under: %LOCAL_INCOMING%
+echo.
 
-IF %ERRORLEVEL% EQU 0 (
-    echo Done! Yesterday's recordings moved to Archive.
-    echo Local copy will disappear once MEGA syncs.
-) ELSE (
-    echo ERROR: Move failed. Check that this path exists in MEGA:
-    echo %YESTERDAY_PATH%
-    echo.
-    echo Run this to verify:
-    echo "%MEGACMD_DIR%\MEGAclient.exe" ls "%INCOMING%/%YEAR%/%MONTH%"
+FOR /F "tokens=1-3" %%A IN ('powershell -NoProfile -Command "$today=(Get-Date).Date; Get-ChildItem -LiteralPath '%LOCAL_INCOMING%' -Directory | Where-Object { $_.Name -match '^[0-9]{4}$' } | ForEach-Object { $year=$_.Name; Get-ChildItem -LiteralPath $_.FullName -Directory | Where-Object { $_.Name -match '^(0[1-9]|1[0-2])$' } | ForEach-Object { $month=$_.Name; Get-ChildItem -LiteralPath $_.FullName -Directory | Where-Object { $_.Name -match '^(0[1-9]|[12][0-9]|3[01])$' } | ForEach-Object { $day=[int]$_.Name; $date=[datetime]::new([int]$year,[int]$month,$day); if ($date -lt $today) { Write-Output ($year + [char]32 + $month + [char]32 + $_.Name) } } } }"') DO (
+    CALL :ARCHIVE_DATE "%%A" "%%B" "%%C"
 )
 
 :done
 :: pause
+exit /b 0
+
+:ARCHIVE_DATE
+SET "YEAR=%~1"
+SET "MONTH=%~2"
+SET "DAY=%~3"
+SET "TARGET_PATH=%INCOMING%/%YEAR%/%MONTH%/%DAY%"
+SET "ARCHIVE_PATH=%ARCHIVE%/%YEAR%/%MONTH%"
+
+echo Checking: %TARGET_PATH%
+"%MEGA_CMD%" ls "%TARGET_PATH%" >nul 2>&1
+IF ERRORLEVEL 1 (
+    echo Folder is not present in MEGA; leaving it untouched.
+    exit /b 0
+)
+
+"%MEGA_CMD%" mkdir -p "%ARCHIVE_PATH%" >nul 2>&1
+"%MEGA_CMD%" mv "%TARGET_PATH%" "%ARCHIVE_PATH%/"
+IF ERRORLEVEL 1 (
+    echo ERROR: Move failed for %TARGET_PATH%.
+) ELSE (
+    echo Archived: %TARGET_PATH%
+)
+exit /b 0
