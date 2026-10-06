@@ -10,6 +10,10 @@ echo.
 SET "MEGACMD_DIR=%LOCALAPPDATA%\MEGAcmd"
 IF NOT EXIST "%MEGACMD_DIR%\MEGAclient.exe" SET "MEGACMD_DIR=%USERPROFILE%\AppData\Local\MEGAcmd"
 SET "MEGA_CMD=%MEGACMD_DIR%\MEGAclient.exe"
+SET "N8N_CMD=%APPDATA%\npm\n8n.cmd"
+SET "NODE_CMD=%ProgramFiles%\nodejs\node.exe"
+FOR %%I IN ("%N8N_CMD%") DO SET "N8N_CMD=%%~sI"
+FOR %%I IN ("%NODE_CMD%") DO SET "NODE_CMD=%%~sI"
 
 IF NOT EXIST "%MEGA_CMD%" (
   echo ERROR: MEGAcmd was not found at "%MEGA_CMD%".
@@ -28,7 +32,7 @@ schtasks /delete /tn "MEGA Auto Login" /f >nul 2>&1
 :: --- Task 1: n8n auto start on boot ---
 echo [1/3] Registering n8n auto start...
 schtasks /create /tn "n8n Auto Start" ^
-  /tr "cmd.exe /c n8n start" ^
+  /tr "cmd.exe /d /c call %N8N_CMD% start" ^
   /sc onstart ^
   /rl highest ^
   /f
@@ -38,7 +42,7 @@ echo.
 :: --- Task 2: server.js auto start on boot ---
 echo [2/3] Registering server.js auto start...
 schtasks /create /tn "n8n Runner Server" ^
-  /tr "node C:\dev\portfolio\reolink-archive-pipeline\server.js" ^
+  /tr "cmd.exe /d /c call C:\dev\portfolio\reolink-archive-pipeline\start_server.bat" ^
   /sc onstart ^
   /rl highest ^
   /f

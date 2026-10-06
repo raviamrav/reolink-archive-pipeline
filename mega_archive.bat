@@ -17,6 +17,9 @@ SET "LOCAL_INCOMING=C:\Reolink_FTP"
 SET "INCOMING=/MEGA/Reolink_cams"
 SET "ARCHIVE=/MEGA/Camera_Archive"
 SET "PROJECT_DIR=C:\dev\portfolio\reolink-archive-pipeline"
+SET "N8N_CMD=%APPDATA%\npm\n8n.cmd"
+SET "NODE_CMD=%ProgramFiles%\nodejs\node.exe"
+SET "POWERSHELL_CMD=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 
 :: Optional: set these environment variables before running the script
 ::   set MEGA_EMAIL=your@email.com
@@ -51,8 +54,7 @@ IF %ERRORLEVEL% NEQ 0 (
 :: STEP 2 - Ensure n8n is installed and running
 :: ============================================
 echo [2/4] Checking n8n...
-where n8n >nul 2>&1
-IF %ERRORLEVEL% NEQ 0 (
+IF NOT EXIST "%N8N_CMD%" (
     echo ERROR: n8n is not installed.
     echo Install it with: npm install -g n8n
     exit /b 1
@@ -61,7 +63,7 @@ IF %ERRORLEVEL% NEQ 0 (
 netstat -ano | findstr ":5678" >nul 2>&1
 IF %ERRORLEVEL% NEQ 0 (
     echo n8n not running. Starting...
-    start /min "n8n Service" cmd /c "n8n start"
+    start /min "n8n Service" "%ComSpec%" /d /c ""%N8N_CMD%" start"
     timeout /t 30 /nobreak >nul
     echo n8n started.
 ) ELSE (
@@ -72,8 +74,7 @@ IF %ERRORLEVEL% NEQ 0 (
 :: STEP 3 - Ensure Node.js and server.js are available
 :: ============================================
 echo [3/4] Checking server.js...
-where node >nul 2>&1
-IF %ERRORLEVEL% NEQ 0 (
+IF NOT EXIST "%NODE_CMD%" (
     echo ERROR: Node.js is not installed or not on PATH.
     echo Install Node.js LTS from https://nodejs.org
     exit /b 1
@@ -87,7 +88,7 @@ IF NOT EXIST "%PROJECT_DIR%\server.js" (
 netstat -ano | findstr ":3000" >nul 2>&1
 IF %ERRORLEVEL% NEQ 0 (
     echo server.js not running. Starting...
-    start /min "n8n Runner" cmd /c "node %PROJECT_DIR%\server.js"
+    start /min "n8n Runner" "%ComSpec%" /d /c ""%NODE_CMD%" "%PROJECT_DIR%\server.js""
     timeout /t 5 /nobreak >nul
     echo server.js started.
 ) ELSE (
@@ -118,7 +119,7 @@ echo Today is: %DATE%
 echo Scanning completed recording folders under: %LOCAL_INCOMING%
 echo.
 
-FOR /F "tokens=1-3" %%A IN ('powershell -NoProfile -Command "$today=(Get-Date).Date; Get-ChildItem -LiteralPath '%LOCAL_INCOMING%' -Directory | Where-Object { $_.Name -match '^[0-9]{4}$' } | ForEach-Object { $year=$_.Name; Get-ChildItem -LiteralPath $_.FullName -Directory | Where-Object { $_.Name -match '^(0[1-9]|1[0-2])$' } | ForEach-Object { $month=$_.Name; Get-ChildItem -LiteralPath $_.FullName -Directory | Where-Object { $_.Name -match '^(0[1-9]|[12][0-9]|3[01])$' } | ForEach-Object { $day=[int]$_.Name; $date=[datetime]::new([int]$year,[int]$month,$day); if ($date -lt $today) { Write-Output ($year + [char]32 + $month + [char]32 + $_.Name) } } } }"') DO (
+FOR /F "tokens=1-3" %%A IN ('%POWERSHELL_CMD% -NoProfile -Command "$today=(Get-Date).Date; Get-ChildItem -LiteralPath '%LOCAL_INCOMING%' -Directory | Where-Object { $_.Name -match '^[0-9]{4}$' } | ForEach-Object { $year=$_.Name; Get-ChildItem -LiteralPath $_.FullName -Directory | Where-Object { $_.Name -match '^(0[1-9]|1[0-2])$' } | ForEach-Object { $month=$_.Name; Get-ChildItem -LiteralPath $_.FullName -Directory | Where-Object { $_.Name -match '^(0[1-9]|[12][0-9]|3[01])$' } | ForEach-Object { $day=[int]$_.Name; $date=[datetime]::new([int]$year,[int]$month,$day); if ($date -lt $today) { Write-Output ($year + [char]32 + $month + [char]32 + $_.Name) } } } }"') DO (
     CALL :ARCHIVE_DATE "%%A" "%%B" "%%C"
 )
 
@@ -133,6 +134,8 @@ SET "DAY=%~3"
 SET "TARGET_PATH=%INCOMING%/%YEAR%/%MONTH%/%DAY%"
 SET "ARCHIVE_PATH=%ARCHIVE%/%YEAR%/%MONTH%"
 
+echo Archiving: %TARGET_PATH% to %ARCHIVE_PATH%...
+
 echo Checking: %TARGET_PATH%
 "%MEGA_CMD%" ls "%TARGET_PATH%" >nul 2>&1
 IF ERRORLEVEL 1 (
@@ -140,8 +143,12 @@ IF ERRORLEVEL 1 (
     exit /b 0
 )
 
+:: Create target archive directory if missing
 "%MEGA_CMD%" mkdir -p "%ARCHIVE_PATH%" >nul 2>&1
+
+:: Move the directory
 "%MEGA_CMD%" mv "%TARGET_PATH%" "%ARCHIVE_PATH%/"
+
 IF ERRORLEVEL 1 (
     echo ERROR: Move failed for %TARGET_PATH%.
 ) ELSE (
